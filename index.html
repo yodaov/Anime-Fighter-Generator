@@ -12,20 +12,18 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       display: grid; place-items: center;
     }
-    .wrap { width: min(92vw, 1680px); text-align: center; }
+    .wrap { width: min(920px, 92vw); text-align: center; }
     h1 { font-size: 1.1rem; font-weight: 600; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; margin: 0 0 1rem; }
-    .screen { background: #000; border: 1px solid #222; border-radius: 16px; padding: 28px 22px; min-height: 62vh; width: 100%; max-width: 1500px; display: flex; flex-direction: column; gap: 22px; }
-    .rows { flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 20px; justify-content: center; }
-    .row { display: flex; align-items: baseline; gap: 14px; font-size: clamp(14px, 2.4vw, 28px); line-height: 1.35; letter-spacing: .02em; width: min(1200px, 96%); margin: 0 auto; }
+    .screen { background: #000; border: 1px solid #222; border-radius: 16px; padding: 28px 22px; min-height: 62vh; width: 100%; max-width: 1200px; display: flex; flex-direction: column; gap: 18px; }
+    .rows { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 12px; justify-content: center; }
+    .row { font-size: clamp(14px, 2.8vw, 32px); line-height: 1.15; letter-spacing: .02em; }
     .muted { color: var(--muted); font-size: .9em; }
-    .label { color: var(--muted); min-width: 12ch; text-align: right; letter-spacing: .06em; }
-    .value { flex: 1; text-align: left; word-break: break-word; }
     .controls { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
     button { cursor: pointer; font: inherit; color: #000; background: var(--accent); border: none; padding: 12px 18px; border-radius: 999px; font-weight: 700; letter-spacing: .04em; }
     button[disabled] { opacity: .5; cursor: not-allowed; }
     .hint { color: var(--muted); font-size: .85rem; margin-top: 6px; }
     .footer { color: var(--muted); font-size: .8rem; margin-top: 10px; }
-    .slotting { opacity: .9; filter: blur(.35px); }
+    .slotting { opacity: .9; filter: blur(.4px); }
     .final { animation: pop .22s ease-out both; }
     @keyframes pop { from { transform: scale(.98); opacity: .6; } to { transform: scale(1); opacity: 1; } }
     .tiny { font-size: .9rem; }
@@ -45,93 +43,102 @@
         <button id="copyBtn" disabled>Copy result</button>
       </div>
       <div class="hint" id="hint">Lists will be loaded from <code>RouletteLists.txt</code> in this folder.</div>
-      <div class="footer">Made by Yodaov.</div>
+      <div class="footer">Made for GitHub Pages — single file, no build tools.</div>
     </div>
   </div>
 
+  <!-- Data loader: expects RouletteLists.txt in the same directory. -->
   <script>
-    // --- RNG helper ---
+    // Utility: cryptographically-strong random int in [0, n)
     function randInt(n){ const a=new Uint32Array(1); self.crypto.getRandomValues(a); return a[0] % n; }
 
-    // --- Load and parse the text lists ---
+    // Parse the uploaded text file into category arrays.
     async function loadLists() {
       const hintEl = document.getElementById('hint');
-      const res = await fetch('RouletteLists.txt', {cache: 'no-store'});
-      if(!res.ok) throw new Error('Failed to load RouletteLists.txt ('+res.status+').');
-      const txt = await res.text();
-      const lines = txt.split('\n'); // trimming later handles CRLF
-      const sections = {}; let current = null;
-      for (let i=0; i<lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        const m = line.match(/^([A-Za-zÀ-ÿ()'\- ]+):\s*$/);
-        if (m) { current = m[1].toLowerCase(); if(!sections[current]) sections[current]=[]; continue; }
-        if (current) sections[current].push(line);
+      try {
+        const res = await fetch('RouletteLists.txt', {cache: 'no-store'});
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        const txt = await res.text();
+        // Normalize line endings
+        const lines = txt.replace(/\r\n?/g, '\n').split('\n');
+        const sections = {};
+        let current = null;
+        for (let i=0; i<lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue; // keep duplicates probability by not deduping later
+          // Heading detection: e.g., "First names:" or "All powers:" etc.
+          const m = line.match(/^([A-Za-zÀ-ÿ()'\- ]+):\s*$/);
+          if (m) { current = m[1].toLowerCase(); if(!sections[current]) sections[current]=[]; continue; }
+          if (current) sections[current].push(line);
+        }
+
+        // Map our expected keys
+        const firstNames = sections['first names'] || [];
+        const surnames   = sections['surnames'] || [];
+        const races      = sections['races'] || [];
+        const mentality  = sections['mentality'] || [];
+        const backgrounds= sections['backgrounds'] || [];
+        const powerAmt   = (sections['power amount'] || []).filter(s=>/power/i.test(s));
+        const powers     = sections['all powers'] || [];
+        const weaknesses = sections['weaknesses'] || [];
+
+        // Validate minimal viability
+        const ok = [firstNames, surnames, races, mentality, backgrounds, powerAmt, powers, weaknesses].every(arr => arr.length>0);
+        if(!ok) throw new Error('Could not locate one or more sections. Check headings and file placement.');
+
+        hintEl.textContent = 'Lists loaded. Press Start!';
+        return { firstNames, surnames, races, mentality, backgrounds, powerAmt, powers, weaknesses };
+      } catch (err) {
+        hintEl.innerHTML = 'Failed to load <code>RouletteLists.txt</code>: ' + err.message + '. Place it alongside this file and ensure headings end with a colon (:).';
+        throw err;
       }
-      const firstNames = sections['first names'] || [];
-      const surnames   = sections['surnames'] || [];
-      const races      = sections['races'] || [];
-      const mentality  = sections['mentality'] || [];
-      const backgrounds= sections['backgrounds'] || [];
-      const powerAmt   = (sections['power amount'] || []).filter(s=>/power/i.test(s));
-      const powers     = sections['all powers'] || [];
-      const weaknesses = sections['weaknesses'] || [];
-      const ok = [firstNames, surnames, races, mentality, backgrounds, powerAmt, powers, weaknesses].every(a=>a.length>0);
-      if(!ok) throw new Error('Missing one or more sections in RouletteLists.txt');
-      hintEl.textContent = 'Lists loaded. Press Start!';
-      return { firstNames, surnames, races, mentality, backgrounds, powerAmt, powers, weaknesses };
     }
 
-    // --- Slot effect into a target element ---
-    function spinInto(el, list, durationMs=1800, finalValue=null) {
+    // Slot-machine effect for a single value
+    function rollOne(list, durationMs=1800) {
+      durationMs = durationMs * 1.6; // slower roll speed
       return new Promise(resolve => {
-        el.classList.add('slotting');
+        const row = document.createElement('div');
+        row.className = 'row slotting';
+        row.textContent = '…';
+        document.getElementById('rows').appendChild(row);
+
         let t0 = performance.now();
         let tick = 0;
         const easeOut = x => 1 - Math.pow(1-x, 3);
         function frame(now) {
           tick++;
-          const p = Math.min(1, (now - t0) / durationMs);
+          const elapsed = now - t0;
+          const p = Math.min(1, elapsed / durationMs);
+          // update fast at first, then slow towards the end
           if (tick % Math.max(1, Math.floor(8*easeOut(p))) === 0) {
-            el.textContent = list[randInt(list.length)];
+            row.textContent = list[randInt(list.length)];
           }
           if (p < 1) requestAnimationFrame(frame); else {
-            el.classList.remove('slotting');
-            el.classList.add('final');
-            if (finalValue !== null) el.textContent = finalValue;
-            resolve(el.textContent);
+            row.classList.remove('slotting');
+            row.classList.add('final');
+            resolve(row.textContent);
           }
         }
         requestAnimationFrame(frame);
       });
     }
 
-    // --- UI helpers ---
-    function createLabeledRow(label){
-      const row = document.createElement('div'); row.className='row';
-      const labelEl = document.createElement('span'); labelEl.className='label'; labelEl.textContent = label + ':';
-      const valueEl = document.createElement('span'); valueEl.className='value';
-      row.append(labelEl, valueEl);
-      document.getElementById('rows').appendChild(row);
-      return { row, valueEl };
+    function clearRows(){ const rows=document.getElementById('rows'); rows.innerHTML=''; }
+
+    function resultAsText() {
+      return Array.from(document.querySelectorAll('#rows .row')).map(el=>el.textContent).join('\n');
     }
 
-    function clearRows(){ document.getElementById('rows').innerHTML=''; }
-    function resultAsText(){ return Array.from(document.querySelectorAll('#rows .row')).map(el=>el.textContent).join('\n'); }
-
-    // --- Main flow ---
     (function main(){
-      let listsCache=null;
-      async function ensureLists(){ return listsCache || (listsCache = await loadLists()); }
-
       const startBtn = document.getElementById('startBtn');
       const rerollBtn = document.getElementById('rerollBtn');
       const copyBtn = document.getElementById('copyBtn');
 
-      function pickDistinct(list, exclude){
-        if (exclude.size >= list.length) return list[randInt(list.length)];
-        let v; do { v = list[randInt(list.length)]; } while (exclude.has(v));
-        return v;
+      let listsCache = null;
+
+      async function ensureLists(){
+        if (listsCache) return listsCache; else return (listsCache = await loadLists());
       }
 
       async function run(){
@@ -139,43 +146,35 @@
         clearRows();
         const { firstNames, surnames, races, mentality, backgrounds, powerAmt, powers, weaknesses } = await ensureLists();
 
-        // Name (First + Surname on the same line)
-        const nameRow = createLabeledRow('Name');
-        const fnSpan = document.createElement('span');
-        const snSpan = document.createElement('span');
-        nameRow.valueEl.append(fnSpan, document.createTextNode(' '), snSpan);
-        await spinInto(fnSpan, firstNames, 1600 + randInt(700));
-        await spinInto(snSpan, surnames,   1600 + randInt(700));
+        // Order:
+        // First name, Surname, Race, Mentality, Background, Power Amount, Power(s), Weakness
+        const sequence = [
+          () => rollOne(firstNames, 1600 + randInt(700)),
+          () => rollOne(surnames,   1600 + randInt(700)),
+          () => rollOne(races,      1700 + randInt(700)),
+          () => rollOne(mentality,  1800 + randInt(700)),
+          () => rollOne(backgrounds,1900 + randInt(800)),
+          () => rollOne(powerAmt,   2000 + randInt(900)),
+        ];
 
-        // Race
-        const raceRow = createLabeledRow('Race');
-        await spinInto(raceRow.valueEl, races, 1700 + randInt(700));
+        const picked = [];
+        for (const step of sequence) picked.push(await step());
 
-        // Mentality
-        const mentRow = createLabeledRow('Mentality');
-        await spinInto(mentRow.valueEl, mentality, 1800 + randInt(700));
+        // Determine number of powers from the exact string
+        const amtStr = picked[picked.length-1].toLowerCase();
+        const nPowers = /2\s*powers/.test(amtStr) ? 2 : 1;
 
-        // Background
-        const backRow = createLabeledRow('Background');
-        await spinInto(backRow.valueEl, backgrounds, 1900 + randInt(800));
-
-        // Power Amount
-        const amtRow = createLabeledRow('Power Amount');
-        const amtText = await spinInto(amtRow.valueEl, powerAmt, 2000 + randInt(900));
-        const isTwo = /2\s*powers?/i.test(amtText);
-
-        // Powers (1 or 2) — ensure distinct when possible
-        const chosen = new Set();
-        const n = isTwo ? 2 : 1;
-        for (let i=0; i<n; i++){
-          const pRow = createLabeledRow(n>1 ? `Power ${i+1}` : 'Power');
-          const final = pickDistinct(powers, chosen); chosen.add(final);
-          await spinInto(pRow.valueEl, powers, 1700 + randInt(700), final);
+        const chosenPowers = new Set();
+        for (let i=0; i<nPowers; i++) {
+          let val;
+          // Ensure distinct power if possible
+          if (powers.length > 1) {
+            do { val = powers[randInt(powers.length)]; } while(chosenPowers.has(val));
+          } else { val = powers[0]; }
+          chosenPowers.add(await rollOne([ ...chosenPowers.has(val) ? [] : [val], ...powers ], 1700 + randInt(700))); // quick animation reveal
         }
 
-        // Weakness
-        const weakRow = createLabeledRow('Weakness');
-        await spinInto(weakRow.valueEl, weaknesses, 1700 + randInt(800));
+        await rollOne(weaknesses, 1700 + randInt(800));
 
         rerollBtn.disabled = false; copyBtn.disabled = false; startBtn.disabled = false;
       }
@@ -188,6 +187,7 @@
         catch { copyBtn.textContent = 'Copy failed'; setTimeout(()=>copyBtn.textContent='Copy result', 900); }
       });
 
+      // keyboard shortcut
       window.addEventListener('keydown', (e) => { if (e.key === 's' || e.key === 'S') startBtn.click(); });
     })();
   </script>
